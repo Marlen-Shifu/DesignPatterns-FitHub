@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Main Page</title>
+</head>
+<body>
+    <h2>Welcome to FitHub!</h2>
+    <p>This is the main page of FitHub. Explore our features:</p>
+    <form action="/register">
+        <button type="submit">Register</button>
+    </form>
+    <form action="/login">
+        <button type="submit">Login</button>
+    </form>
+    <p>Or you can view the <a href="{{ url_for('users') }}">registered users</a>.</p>
+</body>
+</html>

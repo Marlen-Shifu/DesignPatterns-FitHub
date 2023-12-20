@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
 from flask_login import LoginManager, login_user, login_required, current_user, logout_user
 from db import SQLiteProvider
 from services import DatabaseAdapter, UserObserver, register_user, login_user_service, create_workout_plan, User
@@ -11,12 +11,17 @@ login_manager.login_view = 'login'
 
 users_database = []
 
-# Instantiate SQLiteProvider once at the start of the application
-sqlite_provider = SQLiteProvider(database_path='your_sqlite_database.db')
+# Assuming you have a SQLite database named 'example.db'
+database_provider = SQLiteProvider('example.db')
+database_adapter = DatabaseAdapter(database_provider)
 
 @login_manager.user_loader
 def load_user(user_id):
-    return next((user for user in users_database if user.id == int(user_id)), None)
+    user_data = database_adapter.get_data('users', {'id': user_id})
+    if user_data:
+        user_data = user_data[0]
+        return User(id=user_data[0], username=user_data[1], password=user_data[2])
+    return None
 
 @app.route('/')
 def index():
@@ -29,14 +34,14 @@ def login():
         username = data.get('username')
         password = data.get('password')
 
-        user = login_user_service(username, password, sqlite_provider)
+        user = login_user_service(username, password, database_adapter)
         if user:
             login_user(user)
             return redirect(url_for('index'))
         else:
-            return render_template('login.html', message='Invalid username or password')
+            return render_template('login.html', error_message='Invalid username or password')
 
-    return render_template('login.html', message='')
+    return render_template('login.html', error_message='')
 
 @app.route('/logout')
 @login_required
@@ -51,30 +56,38 @@ def create_workout_plan_route():
     exercise = data.get('exercise')
     duration = data.get('duration')
 
-    database_adapter = DatabaseAdapter(database_provider=sqlite_provider)
     user_observer = UserObserver()
     return create_workout_plan(exercise, duration, database_adapter, user_observer)
 
+
 @app.route('/register', methods=['GET', 'POST'])
 def register():
+    error_message = None
+
     if request.method == 'POST':
-        data = request.form
-        username = data.get('username')
-        password = data.get('password')
+        username = request.form['username']
+        password = request.form['password']
 
-        database_adapter = DatabaseAdapter(database_provider=sqlite_provider)
+        result = register_user(username, password, database_adapter)
 
-        # Register user and log them in
-        registered_user = register_user(username, password, users_database, database_adapter)
-        login_user(registered_user)
+        if isinstance(result, User):
+            login_user(result)  # Auto-login the user after successful registration
+            flash('Registration successful!', 'success')
+            return redirect(url_for('index'))
+        else:
+            error_message = result['message']
+            flash(error_message, 'error')
 
-        return redirect(url_for('index'))
+    return render_template('register.html', error_message=error_message)
 
-    return render_template('register.html')
 
 @app.route('/users')
+@login_required
 def users():
-    return render_template('users.html', users=users_database)
+    users_data = database_adapter.get_data('users')
+    users_list = [{'id': user[0], 'username': user[1]} for user in users_data]
+    return render_template('users.html', users=users_list)
+
 
 if __name__ == '__main__':
     app.run(debug=True)

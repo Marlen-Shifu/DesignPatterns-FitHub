@@ -2,11 +2,28 @@ from flask import jsonify
 from db import DatabaseProvider, SQLiteProvider
 from flask_login import UserMixin
 
+
 class User(UserMixin):
     def __init__(self, id, username, password):
         self.id = id
         self.username = username
         self.password = password
+
+    @property
+    def is_active(self):
+        return True  # Adjust this based on your authentication logic
+
+    @property
+    def is_authenticated(self):
+        return True  # Adjust this based on your authentication logic
+
+    @property
+    def is_anonymous(self):
+        return False
+
+    def get_id(self):
+        return str(self.id)
+
 
 class WorkoutPlanBuilder:
     def __init__(self):
@@ -20,8 +37,20 @@ class WorkoutPlanBuilder:
         return self.workout_plan
 
 class DatabaseAdapter:
-    def __init__(self, database_provider: DatabaseProvider):
+    def __init__(self, database_provider):
         self.database_provider = database_provider
+
+    def find_user_by_username(self, username):
+        query = {"username": username}
+        result = self.database_provider.get_data('users', query)
+        return result[0] if result else None
+
+    def save_user(self, username, hashed_password):
+        data = {"username": username, "password": hashed_password}
+        self.database_provider.save_data(data, "users")
+
+    def get_data(self, table_name, params=None):
+        return self.database_provider.get_data(table_name, params)
 
     def save_data(self, data, table_name):
         self.database_provider.save_data(data, table_name)
@@ -31,36 +60,34 @@ class UserObserver:
         # Logic to notify users about achievements, progress, or reminders
         pass
 
-def register_user(username, password, users_database, database_provider):
-    if any(user.username == username for user in users_database):
-        return jsonify({'message': 'Username already taken. Please choose another one.'}), 400
-
-    # Hash the password before saving it to the database
+def register_user(username, password, database_adapter):
     hashed_password = hash_password(password)
 
-    new_user_id = len(users_database) + 1
-    new_user = User(id=new_user_id, username=username, password=hashed_password)
-    users_database.append(new_user)
+    existing_user = database_adapter.find_user_by_username(username)
+    if existing_user:
+        return {'message': 'Username already taken. Please choose another one.'}
 
-    data = {'username': username, 'password': hashed_password}
-    database_provider.save_data(data, table_name='users')
+    database_adapter.save_user(username, hashed_password)
 
-    return new_user
+    new_user_data = database_adapter.find_user_by_username(username)
+    if new_user_data:
+        new_user = User(id=new_user_data[0], username=new_user_data[1], password=new_user_data[2])
+        return new_user
 
-def login_user_service(username, password, database_provider):
-    # Hash the entered password before checking against the stored hash
+    return {'message': 'Failed to register user.'}
+
+def login_user_service(username, password, database_adapter):
     hashed_password = hash_password(password)
 
-    query = "SELECT * FROM users WHERE username=? AND password=?"
-    result = database_provider.execute_query(query, (username, hashed_password))
-
+    query = {"username": username, "password": hashed_password}
+    result = database_adapter.get_data('users', query)
     if result:
-        # Return the User object for Flask-Login
         user_data = result[0]
-        user = User(id=user_data[0], username=user_data[1], password=user_data[2])
-        return user
+        new_user = User(id=user_data[0], username=user_data[1], password=user_data[2])
+        return new_user
     else:
         return None
+
 
 def create_workout_plan(exercise, duration, database_adapter, user_observer):
     builder = WorkoutPlanBuilder()
